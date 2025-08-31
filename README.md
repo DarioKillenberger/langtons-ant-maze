@@ -15,6 +15,7 @@ My understanding is that what we are doing in turing machine terms, is essential
 
 To run, you can use
 
-```npx serve .
-
 ```
+npx serve . 
+```
+
