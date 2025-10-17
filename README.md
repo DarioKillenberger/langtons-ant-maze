@@ -11,11 +11,18 @@ The following changes have been made:
 
 Additionally, the maze will remain the same, unless the ‘refresh maze’ button is clicked, which ensures I can test different machines on the same maze.
 
-My understanding is that what we are doing in turing machine terms, is essentially pre-loading the machine tape with some symbols (the maze). Based on my understanding, this makes what was previously a universal turing machine into a specific turing machine, which has the ‘goal’ of finding the maze exit.
+#### Additions for V2
+
+New "Anti-RH-Rule" Maze generation option which uses Kruskal's algorithm to create a harder maze. I've then tried to make it even harder for simple wall-following algorithms by adding:
+
+- Open region: A large, open area with many interconnected paths.
+- Additional Loops: Some more loops are created by removing 20% of dead ends.
+- Wall Islands: Isolated walls are placed in open areas to disrupt wall-following.
+
+### How to Run
 
 To run, you can use
 
 ```
-npx serve . 
+npx serve .
 ```
-

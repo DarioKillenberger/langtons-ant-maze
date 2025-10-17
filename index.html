@@ -22,6 +22,9 @@
     </div>
     <div>
       <button id="refreshMaze" style="margin-top: 5px">Refresh Maze</button>
+      <button id="generateAntiRhRuleMaze" style="margin-top: 5px">
+        Generate anti-rh-rule maze
+      </button>
     </div>
     <div class="hide">
       <label for="customBehavior">Custom Behavior:</label>
@@ -160,6 +163,10 @@
 
     document.getElementById("refreshMaze").onclick = function () {
       sim.refreshMaze();
+    };
+
+    document.getElementById("generateAntiRhRuleMaze").onclick = function () {
+      sim.generateAntiRhRuleMaze();
     };
 
     document.getElementById("iterations").onchange = function () {

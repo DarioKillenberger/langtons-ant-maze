@@ -285,6 +285,7 @@ function Simulation() {
    **************/
   var Grid = {
     mazeNeedsRegen: true,
+    mazeAlgorithm: "recursive",
     init: function () {
       this.cells = new Int8Array(
         Options.get.gridSize + Options.get.gridSize * Options.get.gridSize
@@ -296,7 +297,10 @@ function Simulation() {
           Options.get.gridSize + Options.get.gridSize * Options.get.gridSize
         );
         this.generateMaze();
+        this.mazeAlgorithm = "recursive"; // Reset to default
         this.mazeNeedsRegen = false; // Maze has been generated
+      } else if (!Options.get.behavior.maze) {
+        this.mazeWalls = null;
       }
 
       Screen.clearCanvas();
@@ -313,9 +317,163 @@ function Simulation() {
       this.cells[cellIndex] = state;
     },
     isWall: function (cellIndex) {
-      return this.mazeWalls[cellIndex] === 1;
+      return this.mazeWalls && this.mazeWalls[cellIndex] === 1;
     },
     generateMaze: function () {
+      if (this.mazeAlgorithm === "kruskal") {
+        this.generateMazeKruskal();
+      } else {
+        this.generateMazeRecursive();
+      }
+    },
+    generateMazeKruskal: function () {
+      var size = Options.get.gridSize;
+      var walls = this.mazeWalls;
+      var halfSize = Math.floor(size / 2);
+
+      // Using Kruskal's algorithm to generate the maze on a smaller grid
+      var smallWalls = new Int8Array(halfSize * halfSize);
+      for (var i = 0; i < smallWalls.length; i++) {
+        smallWalls[i] = 1; // Initialize with walls
+      }
+
+      var mazeWidth = Math.floor(halfSize / 2);
+      var mazeHeight = Math.floor(halfSize / 2);
+
+      var sets = [];
+      for (var i = 0; i < mazeWidth * mazeHeight; i++) {
+        sets[i] = i;
+      }
+
+      var wallsList = [];
+      for (var y = 0; y < mazeHeight; y++) {
+        for (var x = 0; x < mazeWidth; x++) {
+          if (y > 0) wallsList.push({ x: x, y: y, dir: "N" });
+          if (x > 0) wallsList.push({ x: x, y: y, dir: "W" });
+        }
+      }
+
+      // Shuffle walls list for randomness
+      for (var i = wallsList.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var temp = wallsList[i];
+        wallsList[i] = wallsList[j];
+        wallsList[j] = temp;
+      }
+
+      // Set the "rooms" as paths
+      for (var y = 0; y < mazeHeight; y++) {
+        for (var x = 0; x < mazeWidth; x++) {
+          smallWalls[(y * 2 + 1) * halfSize + (x * 2 + 1)] = 0;
+        }
+      }
+
+      while (wallsList.length > 0) {
+        var wall = wallsList.pop();
+        var x1 = wall.x,
+          y1 = wall.y;
+        var x2, y2;
+
+        if (wall.dir === "N") {
+          x2 = x1;
+          y2 = y1 - 1;
+        } else {
+          // 'W'
+          x2 = x1 - 1;
+          y2 = y1;
+        }
+
+        var set1 = sets[y1 * mazeWidth + x1];
+        var set2 = sets[y2 * mazeWidth + x2];
+
+        if (set1 !== set2) {
+          // Remove wall
+          if (wall.dir === "N") {
+            smallWalls[y1 * 2 * halfSize + (x1 * 2 + 1)] = 0;
+          } else {
+            // 'W'
+            smallWalls[(y1 * 2 + 1) * halfSize + x1 * 2] = 0;
+          }
+
+          // Merge sets
+          var set2Value = set2;
+          for (var i = 0; i < sets.length; i++) {
+            if (sets[i] === set2Value) {
+              sets[i] = set1;
+            }
+          }
+        }
+      }
+
+      hardenMaze(smallWalls, halfSize, mazeWidth, mazeHeight);
+
+      // Create an exit on the small maze and connect it
+      var edge = Math.floor(Math.random() * 4);
+      var exitX, exitY;
+      switch (edge) {
+        case 0: // Top
+          exitX = Math.floor(Math.random() * (halfSize - 2)) + 1;
+          exitY = 0;
+          smallWalls[exitY * halfSize + exitX] = 0; // Carve exit
+          smallWalls[(exitY + 1) * halfSize + exitX] = 0; // Connect it
+          break;
+        case 1: // Right
+          exitX = halfSize - 1;
+          exitY = Math.floor(Math.random() * (halfSize - 2)) + 1;
+          smallWalls[exitY * halfSize + exitX] = 0; // Carve exit
+          smallWalls[exitY * halfSize + (exitX - 1)] = 0; // Connect it
+          break;
+        case 2: // Bottom
+          exitX = Math.floor(Math.random() * (halfSize - 2)) + 1;
+          exitY = halfSize - 1;
+          smallWalls[exitY * halfSize + exitX] = 0; // Carve exit
+          smallWalls[(exitY - 1) * halfSize + exitX] = 0; // Connect it
+          break;
+        case 3: // Left
+          exitX = 0;
+          exitY = Math.floor(Math.random() * (halfSize - 2)) + 1;
+          smallWalls[exitY * halfSize + exitX] = 0; // Carve exit
+          smallWalls[exitY * halfSize + (exitX + 1)] = 0; // Connect it
+          break;
+      }
+
+      // Scale up the small maze to the full grid
+      for (var y = 0; y < halfSize; y++) {
+        for (var x = 0; x < halfSize; x++) {
+          var isPath = smallWalls[y * halfSize + x] === 0;
+          for (var dy = 0; dy < 2; dy++) {
+            for (var dx = 0; dx < 2; dx++) {
+              var fullX = x * 2 + dx;
+              var fullY = y * 2 + dy;
+              if (fullX < size && fullY < size) {
+                walls[fullY * size + fullX] = isPath ? 0 : 1;
+              }
+            }
+          }
+        }
+      }
+
+      // Ensure the center area is clear for the ant to start
+      var centerStartX = Math.floor(size / 2);
+      var centerStartY = Math.floor(size / 2);
+      var centerSize = Math.min(10, Math.floor(size / 10));
+      for (
+        var x = centerStartX - centerSize;
+        x <= centerStartX + centerSize;
+        x++
+      ) {
+        for (
+          var y = centerStartY - centerSize;
+          y <= centerStartY + centerSize;
+          y++
+        ) {
+          if (x >= 0 && x < size && y >= 0 && y < size) {
+            walls[y * size + x] = 0;
+          }
+        }
+      }
+    },
+    generateMazeRecursive: function () {
       var size = Options.get.gridSize;
       var walls = this.mazeWalls;
       var halfSize = Math.floor(size / 2);
@@ -415,7 +573,7 @@ function Simulation() {
               var fullX = x * 2 + dx;
               var fullY = y * 2 + dy;
               if (fullX < size && fullY < size) {
-                walls[fullY * size + fullX] = isPath ? 0 : 1;
+                walls[fullX * size + fullY] = isPath ? 0 : 1;
               }
             }
           }
@@ -462,6 +620,115 @@ function Simulation() {
       }
     },
   };
+
+  function hardenMaze(smallWalls, halfSize, mazeWidth, mazeHeight) {
+    // 1. Large open, highly-connected region
+    var regionWidth = Math.floor(halfSize / 4);
+    var regionHeight = Math.floor(halfSize / 4);
+    var startX = Math.floor(Math.random() * (halfSize - regionWidth - 2)) + 1;
+    var startY = Math.floor(Math.random() * (halfSize - regionHeight - 2)) + 1;
+
+    for (var y = startY; y < startY + regionHeight; y++) {
+      for (var x = startX; x < startX + regionWidth; x++) {
+        smallWalls[y * halfSize + x] = 0;
+      }
+    }
+
+    // 2. Braided maze (remove dead ends)
+    var deadEnds = [];
+    for (var y = 1; y < halfSize - 1; y++) {
+      for (var x = 1; x < halfSize - 1; x++) {
+        if (smallWalls[y * halfSize + x] === 0) {
+          // is path
+          var pathNeighbors = 0;
+          if (smallWalls[y * halfSize + (x + 1)] === 0) pathNeighbors++;
+          if (smallWalls[y * halfSize + (x - 1)] === 0) pathNeighbors++;
+          if (smallWalls[(y + 1) * halfSize + x] === 0) pathNeighbors++;
+          if (smallWalls[(y - 1) * halfSize + x] === 0) pathNeighbors++;
+
+          if (pathNeighbors === 1) {
+            deadEnds.push({ x: x, y: y });
+          }
+        }
+      }
+    }
+
+    // Remove 20% of dead ends
+    deadEnds.sort(() => Math.random() - 0.5);
+    for (var i = 0; i < deadEnds.length * 0.2; i++) {
+      var deadEnd = deadEnds[i];
+      var x = deadEnd.x;
+      var y = deadEnd.y;
+
+      // Find the wall to remove
+      var removed = false;
+      if (
+        !removed &&
+        smallWalls[y * halfSize + (x + 1)] === 1 &&
+        smallWalls[y * halfSize + (x - 1)] === 0
+      ) {
+        if (x + 2 < halfSize && smallWalls[y * halfSize + (x + 2)] === 0) {
+          smallWalls[y * halfSize + (x + 1)] = 0;
+          removed = true;
+        }
+      }
+      if (
+        !removed &&
+        smallWalls[y * halfSize + (x - 1)] === 1 &&
+        smallWalls[y * halfSize + (x + 1)] === 0
+      ) {
+        if (x - 2 >= 0 && smallWalls[y * halfSize + (x - 2)] === 0) {
+          smallWalls[y * halfSize + (x - 1)] = 0;
+          removed = true;
+        }
+      }
+      if (
+        !removed &&
+        smallWalls[(y + 1) * halfSize + x] === 1 &&
+        smallWalls[(y - 1) * halfSize + x] === 0
+      ) {
+        if (y + 2 < halfSize && smallWalls[(y + 2) * halfSize + x] === 0) {
+          smallWalls[(y + 1) * halfSize + x] = 0;
+          removed = true;
+        }
+      }
+      if (
+        !removed &&
+        smallWalls[(y - 1) * halfSize + x] === 1 &&
+        smallWalls[(y + 1) * halfSize + x] === 0
+      ) {
+        if (y - 2 >= 0 && smallWalls[(y - 2) * halfSize + x] === 0) {
+          smallWalls[(y - 1) * halfSize + x] = 0;
+          removed = true;
+        }
+      }
+    }
+
+    // 3. Islands and disconnected wall-components
+    var islandCandidates = [];
+    for (var y = 1; y < halfSize - 1; y++) {
+      for (var x = 1; x < halfSize - 1; x++) {
+        if (smallWalls[y * halfSize + x] === 0) {
+          // Check for 2x2 open area
+          if (
+            smallWalls[y * halfSize + (x + 1)] === 0 &&
+            smallWalls[(y + 1) * halfSize + x] === 0 &&
+            smallWalls[(y + 1) * halfSize + (x + 1)] === 0
+          ) {
+            islandCandidates.push({ x: x, y: y });
+          }
+        }
+      }
+    }
+
+    // Add islands to 5% of candidate locations
+    islandCandidates.sort(() => Math.random() - 0.5);
+    var numIslands = Math.floor(islandCandidates.length * 0.05);
+    for (var i = 0; i < numIslands; i++) {
+      var island = islandCandidates[i];
+      smallWalls[island.y * halfSize + island.x] = 1;
+    }
+  }
 
   /*************
    ***  Ant  ***
@@ -599,6 +866,13 @@ function Simulation() {
     refreshMaze: function () {
       if (Options.get.behavior.maze) {
         Grid.mazeNeedsRegen = true;
+        run();
+      }
+    },
+    generateAntiRhRuleMaze: function () {
+      if (Options.get.behavior.maze) {
+        Grid.mazeNeedsRegen = true;
+        Grid.mazeAlgorithm = "kruskal";
         run();
       }
     },
