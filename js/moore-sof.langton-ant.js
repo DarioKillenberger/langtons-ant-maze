@@ -10,6 +10,7 @@
 function Simulation() {
   var iterator = null;
   var iterations = 0;
+  var solver = null;
 
   /*****************
    ***  Options  ***
@@ -76,6 +77,30 @@ function Simulation() {
           colors: generateRandomColors(12),
           maze: true,
           name: "RRLLLRLLLRRR (Maze)",
+        },
+        {
+          solver: "dfs",
+          name: "DFS Solver",
+          colors: ["#003819", "#00a84c", "#3677b2", "#f83737"],
+          maze: true,
+        },
+        {
+          solver: "dijkstra",
+          name: "Dijkstra Solver",
+          colors: ["#003819", "#00a84c", "#3677b2", "#f83737"],
+          maze: true,
+        },
+        {
+          solver: "astar",
+          name: "A* Solver",
+          colors: ["#003819", "#00a84c", "#3677b2", "#f83737"],
+          maze: true,
+        },
+        {
+          solver: "wallfollower",
+          name: "Wall Follower",
+          colors: ["#003819", "#00a84c", "#3677b2", "#f83737"],
+          maze: true,
         },
       ];
 
@@ -222,7 +247,18 @@ function Simulation() {
         ctx.strokeStyle = "#555";
         ctx.stroke();
       },
-      printCellState: function (cellState) {
+      printCellState: function (cell, color) {
+        var x = cell.x * cellSize + 1,
+          y = cell.y * cellSize + 1,
+          wh = cellSize - 1;
+
+        // Don't overwrite maze walls
+        if (!Grid.isWall(cell.y + cell.x * Options.get.gridSize)) {
+          ctx.fillStyle = color;
+          ctx.fillRect(x, y, wh, wh);
+        }
+      },
+      printAntCellState: function (cellState) {
         var x = Ant.x * cellSize + 1,
           y = Ant.y * cellSize + 1,
           wh = cellSize - 1;
@@ -416,24 +452,32 @@ function Simulation() {
           exitY = 0;
           smallWalls[exitY * halfSize + exitX] = 0; // Carve exit
           smallWalls[(exitY + 1) * halfSize + exitX] = 0; // Connect it
+          // Store scaled exit on the exact edge
+          this.exit = { x: exitX * 2 + 1, y: 0 };
           break;
         case 1: // Right
           exitX = halfSize - 1;
           exitY = Math.floor(Math.random() * (halfSize - 2)) + 1;
           smallWalls[exitY * halfSize + exitX] = 0; // Carve exit
           smallWalls[exitY * halfSize + (exitX - 1)] = 0; // Connect it
+          // Store scaled exit on the exact edge
+          this.exit = { x: size - 1, y: exitY * 2 + 1 };
           break;
         case 2: // Bottom
           exitX = Math.floor(Math.random() * (halfSize - 2)) + 1;
           exitY = halfSize - 1;
           smallWalls[exitY * halfSize + exitX] = 0; // Carve exit
           smallWalls[(exitY - 1) * halfSize + exitX] = 0; // Connect it
+          // Store scaled exit on the exact edge
+          this.exit = { x: exitX * 2 + 1, y: size - 1 };
           break;
         case 3: // Left
           exitX = 0;
           exitY = Math.floor(Math.random() * (halfSize - 2)) + 1;
           smallWalls[exitY * halfSize + exitX] = 0; // Carve exit
           smallWalls[exitY * halfSize + (exitX + 1)] = 0; // Connect it
+          // Store scaled exit on the exact edge
+          this.exit = { x: 0, y: exitY * 2 + 1 };
           break;
       }
 
@@ -446,7 +490,7 @@ function Simulation() {
               var fullX = x * 2 + dx;
               var fullY = y * 2 + dy;
               if (fullX < size && fullY < size) {
-                walls[fullY * size + fullX] = isPath ? 0 : 1;
+                walls[fullX * size + fullY] = isPath ? 0 : 1;
               }
             }
           }
@@ -563,6 +607,12 @@ function Simulation() {
           smallWalls[exitY * halfSize + (exitX + 1)] = 0; // Connect it
           break;
       }
+
+      // Store the exit coordinates
+      this.exit = {
+        x: exitX * 2 + Math.floor(Math.random() * 2),
+        y: exitY * 2 + Math.floor(Math.random() * 2),
+      };
 
       // Scale up the small maze to the full grid
       for (var y = 0; y < halfSize; y++) {
@@ -787,7 +837,7 @@ function Simulation() {
 
     Grid.setCellState(Ant.cellIndex, newCellState);
 
-    Screen.printCellState(currentCellState);
+    Screen.printAntCellState(currentCellState);
     Screen.printAntOrientation();
 
     Ant.turn(currentCellState);
@@ -804,7 +854,7 @@ function Simulation() {
       ) {
         // Color the final cell before halting
         var finalCellState = Grid.getCellState(Ant.cellIndex);
-        Screen.printCellState(finalCellState);
+        Screen.printAntCellState(finalCellState);
         Screen.printAntOrientation();
         return "edge"; // Halt simulation
       }
@@ -818,6 +868,34 @@ function Simulation() {
   }
 
   function runSteps() {
+    if (Options.get.behavior.solver) {
+      for (
+        var i = 0, intervals = Options.get.intervalCount;
+        i < intervals;
+        i++
+      ) {
+        if (iterations >= 2000000) {
+          Screen.printHaltMessage("Halted: Maximum steps reached.");
+          clearInterval(iterator);
+          break;
+        }
+        var result = solver.step();
+        if (result === "found") {
+          Screen.printHaltMessage("Halted: Ant reached the edge of the board.");
+          clearInterval(iterator);
+          Screen.printIterationCount(iterations);
+          break;
+        } else if (result === "done") {
+          Screen.printHaltMessage("Halted: No path found.");
+          clearInterval(iterator);
+          Screen.printIterationCount(iterations);
+          break;
+        }
+        iterations++;
+      }
+      Screen.printIterationCount(iterations);
+      return;
+    }
     for (var i = 0, intervals = Options.get.intervalCount; i < intervals; i++) {
       if (iterations >= 2000000) {
         Screen.printHaltMessage("Halted: Maximum steps reached.");
@@ -852,11 +930,58 @@ function Simulation() {
   function reset() {
     clearInterval(iterator);
     iterations = 0;
+    solver = null;
     Screen.clearBehaviorAlgorithm();
     Screen.clearIterationCount();
     Screen.clearHaltMessage();
     Grid.init();
     Ant.init();
+
+    if (Options.get.behavior.solver === "dfs") {
+      solver = new DFSSolver(
+        {
+          cells: Grid.cells,
+          isWall: Grid.isWall.bind(Grid),
+          width: Options.get.gridSize,
+          height: Options.get.gridSize,
+          exit: Grid.exit,
+        },
+        Screen
+      );
+    } else if (Options.get.behavior.solver === "dijkstra") {
+      solver = new DijkstraSolver(
+        {
+          cells: Grid.cells,
+          isWall: Grid.isWall.bind(Grid),
+          width: Options.get.gridSize,
+          height: Options.get.gridSize,
+          exit: Grid.exit,
+        },
+        Screen
+      );
+    } else if (Options.get.behavior.solver === "astar") {
+      solver = new AStarSolver(
+        {
+          cells: Grid.cells,
+          isWall: Grid.isWall.bind(Grid),
+          width: Options.get.gridSize,
+          height: Options.get.gridSize,
+          exit: Grid.exit,
+        },
+        Screen
+      );
+    } else if (Options.get.behavior.solver === "wallfollower") {
+      solver = new WallFollowerSolver(
+        {
+          cells: Grid.cells,
+          isWall: Grid.isWall.bind(Grid),
+          width: Options.get.gridSize,
+          height: Options.get.gridSize,
+          exit: Grid.exit,
+        },
+        Screen
+      );
+    }
   }
 
   return {
